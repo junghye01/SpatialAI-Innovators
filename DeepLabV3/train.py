@@ -30,7 +30,7 @@ def train(num_epochs,model,data_loader,val_loader,criterion,val_every,optimizer,
     min_loss=100.0
 
     for epoch in range(num_epochs):
-        print(f'Start train #{epoch}')
+        print(f'Start train #{epoch+1}')
         model.train()
         accuracy_list=[]
         iou_list=[]
@@ -88,7 +88,7 @@ def train(num_epochs,model,data_loader,val_loader,criterion,val_every,optimizer,
         # wandb
         wandb.log({
             "learning_rate": optimizer.param_groups[0]['lr'],
-            "train_loss":round(epoch_loss,3),
+            "train_loss":round(epoch_loss/len(data_loader),3),
             "train_miou":round(mean_iou,3),
             "valid_loss":round(val_loss,3),
             "valid_miou":round(val_iou,3),
@@ -132,7 +132,8 @@ def val(epoch,model,data_loader,criterion,device):
 
     mean_accuracy=np.mean(accuracy_list)
     mean_iou=np.mean(iou_list)
-    print(f'Val #Epoch {epoch}, Loss: {val_loss/len(data_loader):.3f},acc:{mean_accuracy:.3f},iou:{mean_iou:.3f}')
+    val_loss=val_loss/len(data_loader)
+    print(f'Val #Epoch {epoch}, Loss: {val_loss:.3f},acc:{mean_accuracy:.3f},iou:{mean_iou:.3f}')
     
     return val_loss,mean_accuracy,mean_iou
 
@@ -140,7 +141,7 @@ def val(epoch,model,data_loader,criterion,device):
 
 if __name__=='__main__':
 
-    wandb.init(project='semantic-segmentation',name='DeepLabV3_dsv')
+    wandb.init(project='semantic-segmentation',name='DeepLabV3_dsv',reinit=True)
     
     preprocessing_fn = smp.encoders.get_preprocessing_fn('efficientnet-b5','imagenet')
 
