@@ -21,29 +21,48 @@ from utils import calculate_acc,calculate_iou,DiceLoss_customized
 
 import wandb
 
-def save_model_state_dict(model,saved_dir,file_name='ensembleUNet_best_model_dsv.pt'):
-    output_path=os.path.join(saved_dir,file_name)
-    torch.save(model.state_dict(),output_path)
+#def save_model_state_dict(model,saved_dir,file_name='ensembleUNet_best_model_dsv.pt'):
+ #   output_path=os.path.join(saved_dir,file_name)
+  #  torch.save(model.state_dict(),output_path)
 
-def train_ensemble(num_epochs,models,data_loader,val_loader,criterion,optimizer,scheduler,val_every,saved_dir,device):
+def save_checkpoint(models,epoch,optimizer,scheduler,val_loss,checkpoint,saved_dir):
+    for i,model in enumerate(models):
+        file_name=f'ensembleUNet_{checkpoint}_{i}.pt'
+        output_path=os.path.join(saved_dir,file_name)
+        torch.save(
+                    {
+                        "epoch":epoch,
+                        "model_state_dict":model.state_dict(),
+                        "optimizer_state_dict":optimizer.state_dict(),
+                        "scheduler":scheduler.state_dict(),
+                        "loss":val_loss,
+                        "description":f"EnsembleUNet k-fold ckpt-{checkpoint}",
+                        
+                    },
+                    output_path
+                    )
+
+
+def train_ensemble(num_epochs,models,data_loader,val_loader,criterion,optimizers,schedulers,val_every,saved_dir,device,min_loss,checkpoint):
    
-    min_loss=100.0
+    min_loss=min_loss
+    checkpoint=checkpoint
 
     for epoch in range(num_epochs):
         print(f'Start train #{epoch+1}')
         
-        for model in models:
+        for model,optimizer,scheduler in zip(models,optimizers,schedulers):
             model.train()
       
         accuracy_list=[]
         iou_list=[]
         epoch_loss=0
 
-        for images,masks,_ in tqdm(data_loader):
+        for images,masks in tqdm(data_loader):
             images=images.float().to(device)
             masks=masks.float().to(device)
 
-            for model in models:
+            for model,optimizer in zip(models,optimizers):
 
                 optimizer.zero_grad()
                 outputs=model(images)
@@ -87,9 +106,8 @@ def train_ensemble(num_epochs,models,data_loader,val_loader,criterion,optimizer,
                 min_loss=val_loss
                 # model parameter save
                 #save_model_state_dict(model,saved_dir)
-                for i, model in enumerate(models):
-                    output_path = os.path.join(saved_dir, f'ensembleUNet_model_{i}.pt')
-                    torch.save(model.state_dict(), output_path)
+                save_checkpoint(models,epoch,optimizer,scheduler,val_loss,checkpoint,saved_dir)
+                checkpoint+=1
 
             wandb.log({
                 "valid_loss":round(val_loss,3),
@@ -99,7 +117,8 @@ def train_ensemble(num_epochs,models,data_loader,val_loader,criterion,optimizer,
                 
             })
         # 매 에폭마다 스케줄러 호출
-        scheduler.step()
+        for scheduler in schedulers:
+            scheduler.step()
             
         
         # wandb
@@ -112,6 +131,7 @@ def train_ensemble(num_epochs,models,data_loader,val_loader,criterion,optimizer,
             #"val_iou":round(val_iou,3),
 
         })
+    return min_loss,checkpoint
         
 
             
@@ -128,15 +148,13 @@ def val_ensemble(epoch,models,data_loader,criterion,device):
     
 
     with torch.no_grad():
-        for images,masks,_ in tqdm(data_loader):
+        for images,masks in tqdm(data_loader):
             images=images.float().to(device)
             masks=masks.float().to(device)
 
             # 각 model 마다 output 계산
-            outputs_list=[]
-            for model in models:
-                outputs=model(images)
-                outputs_list.append(outputs)
+
+            outputs_list=[model(images) for model in models]
 
             combined_outputs=torch.mean(torch.stack(outputs_list,dim=0),dim=0)
 
@@ -209,8 +227,8 @@ if __name__=='__main__':
     models=[]
     num_models=3
     # parameter
-    num_epochs=12
-    val_every=3
+    num_epochs=50
+    val_every=10
     saved_dir='/home/irteam/junghye-dcloud-dir/SpatialAI-Innovators/models'
   
 
@@ -224,6 +242,4 @@ if __name__=='__main__':
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2, eta_min=1e-7)
 
     train_ensemble(num_epochs,models,train_loader,val_loader,criterion,optimizer,scheduler,val_every,saved_dir,device)
-    # 모델 매개변수만 저장
-    #output_path='/home/irteam/junghye-dcloud-dir/SpatialAI-Innovators/data/UNet3Plus_0727.pt'
-    #torch.save(model.state_dict(),output_path)
+    
